@@ -224,25 +224,21 @@ class FF3DDataset(SharedDataset):
             full_proj_transforms.append(full_proj_transform)
             camera_centers.append(camera_center)
         
-        # Stack all tensors
+        # Stack all tensors - note: don't add batch dimension yet
         images_and_camera_poses = {
-            "gt_images": torch.stack(gt_images).unsqueeze(0),  # [1, N_views, 3, H, W]
-            "world_view_transforms": torch.stack(world_view_transforms).unsqueeze(0),  # [1, N_views, 4, 4]  
-            "view_to_world_transforms": torch.stack(view_to_world_transforms).unsqueeze(0),  # [1, N_views, 4, 4]
-            "full_proj_transforms": torch.stack(full_proj_transforms).unsqueeze(0),  # [1, N_views, 4, 4]
-            "camera_centers": torch.stack(camera_centers).unsqueeze(0),  # [1, N_views, 3]
+            "gt_images": torch.stack(gt_images),  # [N_views, 3, H, W]
+            "world_view_transforms": torch.stack(world_view_transforms),  # [N_views, 4, 4]  
+            "view_to_world_transforms": torch.stack(view_to_world_transforms),  # [N_views, 4, 4]
+            "full_proj_transforms": torch.stack(full_proj_transforms),  # [N_views, 4, 4]
+            "camera_centers": torch.stack(camera_centers),  # [N_views, 3]
         }
         
-        # Make poses relative to first camera
+        # Make poses relative to first camera (expects no batch dimension)
         images_and_camera_poses = self.make_poses_relative_to_first(images_and_camera_poses)
         
-        # Add quaternion representation for camera rotations
+        # Add quaternion representation for camera rotations  
         images_and_camera_poses["source_cv2wT_quat"] = self.get_source_cw2wT(
             images_and_camera_poses["view_to_world_transforms"]
         )
-        
-        # Remove batch dimension that we added (since dataloader will add it back)
-        for key in images_and_camera_poses:
-            images_and_camera_poses[key] = images_and_camera_poses[key].squeeze(0)
         
         return images_and_camera_poses
