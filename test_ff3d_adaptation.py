@@ -159,26 +159,28 @@ def test_rendering():
     try:
         cfg = create_test_config()
         
-        # Create a simple predicted Gaussian dictionary
+        # Create a simple predicted Gaussian dictionary with proper device handling
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         n_gaussians = 1000
+        
         pc = {
-            'xyz': torch.randn(n_gaussians, 3),
-            'rotation': torch.randn(n_gaussians, 4),
-            'scaling': torch.ones(n_gaussians, 3) * 0.01,
-            'opacity': torch.ones(n_gaussians, 1) * 0.5,
-            'features_dc': torch.ones(n_gaussians, 1, 3) * 0.5,
+            'xyz': torch.randn(n_gaussians, 3, device=device),
+            'rotation': torch.nn.functional.normalize(torch.randn(n_gaussians, 4, device=device), dim=1),  # Normalize quaternions
+            'scaling': torch.ones(n_gaussians, 3, device=device) * 0.01,
+            'opacity': torch.ones(n_gaussians, 1, device=device) * 0.5,
+            'features_dc': torch.ones(n_gaussians, 1, 3, device=device) * 0.5,
         }
         
         # Add features_rest if sh_degree > 0  
         if cfg.model.max_sh_degree > 0:
             sh_rest_dim = (cfg.model.max_sh_degree + 1) ** 2 - 1
-            pc['features_rest'] = torch.zeros(n_gaussians, sh_rest_dim, 3)
+            pc['features_rest'] = torch.zeros(n_gaussians, sh_rest_dim, 3, device=device)
         
-        # Create dummy camera parameters
-        world_view_transform = torch.eye(4)
-        full_proj_transform = torch.eye(4) 
-        camera_center = torch.zeros(3)
-        bg_color = torch.zeros(3)
+        # Create dummy camera parameters on the same device
+        world_view_transform = torch.eye(4, device=device)
+        full_proj_transform = torch.eye(4, device=device) 
+        camera_center = torch.zeros(3, device=device)
+        bg_color = torch.zeros(3, device=device)
         
         print("✅ Dummy Gaussian point cloud created")
         
@@ -217,17 +219,20 @@ def test_end_to_end(obj_dir_override=None):
         dataset = FF3DDataset(cfg, "train")
         sample = dataset[0]
         
-        # Create model
-        model = GaussianSplatPredictor(cfg)
+        # Create model and move to appropriate device  
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = GaussianSplatPredictor(cfg).to(device)
         model.eval()
         
         print("✅ Dataset and model loaded")
         
         # Forward pass
         with torch.no_grad():
-            input_images = sample["gt_images"][:cfg.data.input_images].unsqueeze(0)  # [1, 1, 3, H, W]
-            view_to_world = sample["view_to_world_transforms"][:cfg.data.input_images].unsqueeze(0)  # [1, 1, 4, 4] 
-            cv2wT_quat = sample["source_cv2wT_quat"][:cfg.data.input_images].unsqueeze(0)  # [1, 1, 4]
+            # Move data to appropriate device
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            input_images = sample["gt_images"][:cfg.data.input_images].unsqueeze(0).to(device)  # [1, 1, 3, H, W]
+            view_to_world = sample["view_to_world_transforms"][:cfg.data.input_images].unsqueeze(0).to(device)  # [1, 1, 4, 4] 
+            cv2wT_quat = sample["source_cv2wT_quat"][:cfg.data.input_images].unsqueeze(0).to(device)  # [1, 1, 4]
             
             print(f"✅ Input shapes - Images: {input_images.shape}, View2World: {view_to_world.shape}, Quat: {cv2wT_quat.shape}")
             
@@ -237,11 +242,11 @@ def test_end_to_end(obj_dir_override=None):
             
             # Test rendering with a target view
             target_view_idx = min(5, len(sample["gt_images"]) - 1)  # Use view 5 or last view
-            world_view_transform = sample["world_view_transforms"][target_view_idx]
-            full_proj_transform = sample["full_proj_transforms"][target_view_idx]
-            camera_center = sample["camera_centers"][target_view_idx]
+            world_view_transform = sample["world_view_transforms"][target_view_idx].to(device)
+            full_proj_transform = sample["full_proj_transforms"][target_view_idx].to(device)
+            camera_center = sample["camera_centers"][target_view_idx].to(device)
             
-            bg_color = torch.zeros(3) if not cfg.data.white_background else torch.ones(3)
+            bg_color = (torch.zeros(3) if not cfg.data.white_background else torch.ones(3)).to(device)
             
             # Extract single batch
             pc_batch = {k: v[0].contiguous() for k, v in predicted_gaussians.items()}
@@ -259,7 +264,7 @@ def test_end_to_end(obj_dir_override=None):
             print(f"✅ Final rendered image shape: {rendered['render'].shape}")
             
             # Compare with ground truth
-            gt_image = sample["gt_images"][target_view_idx]  # [3, H, W]
+            gt_image = sample["gt_images"][target_view_idx].to(device)  # [3, H, W]
             rendered_image = rendered["render"]  # [3, H, W]
             
             mse_loss = torch.nn.functional.mse_loss(rendered_image, gt_image)

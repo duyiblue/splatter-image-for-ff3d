@@ -50,7 +50,9 @@ def render_predicted(pc : dict,
         sh_degree=cfg.model.max_sh_degree,
         campos=camera_center,
         prefiltered=False,
-        debug=False
+        debug=False,
+        antialiasing=False  # Splatter Image does not have this argument, but our rasterizer version requires it.
+                            # We've checked that the original Gaussian Splatting sets this to False. So we do the same.
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
