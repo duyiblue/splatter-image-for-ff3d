@@ -83,7 +83,7 @@ def render_predicted(pc : dict,
         colors_precomp = override_color
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    rendered_image, radii = rasterizer(
+    rendered_image, radii, depth_image, transmittance = rasterizer(  # Our modified rasterizer returns more things than the original one used in Splatter Image.
         means3D = means3D,
         means2D = means2D,
         shs = shs,
