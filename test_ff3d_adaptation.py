@@ -69,11 +69,13 @@ def create_test_config():
     }
     return OmegaConf.create(cfg)
 
-def test_dataset_loading():
+def test_dataset_loading(obj_dir_override=None):
     """Test that the FF3D dataset can be loaded correctly."""
     print("🧪 Testing FF3D dataset loading...")
     
     cfg = create_test_config()
+    if obj_dir_override:
+        cfg.data.obj_dir = obj_dir_override
     
     # Check if data directory exists
     obj_dir = Path(cfg.data.obj_dir)
@@ -202,12 +204,14 @@ def test_rendering():
         traceback.print_exc()
         return False
 
-def test_end_to_end():
+def test_end_to_end(obj_dir_override=None):
     """Test end-to-end: dataset → model → rendering."""
     print("\n🧪 Testing end-to-end pipeline...")
     
     try:
         cfg = create_test_config()
+        if obj_dir_override:
+            cfg.data.obj_dir = obj_dir_override
         
         # Load dataset
         dataset = FF3DDataset(cfg, "train")
@@ -272,47 +276,33 @@ def test_end_to_end():
 def main():
     parser = argparse.ArgumentParser(description="Test FF3D dataset adaptation")
     parser.add_argument("--obj_dir", type=str, 
-                       default="/Users/duyi/Desktop/tmp_codebase/tmp_data/obj_000000",
+                       default="/orion/u/yangyou/ff3d/data/PACE/models_rendered/obj_000000",
                        help="Path to FF3D object directory")
     args = parser.parse_args()
     
     print("🚀 Starting FF3D dataset adaptation tests...")
     print(f"Using object directory: {args.obj_dir}")
     
-    # Update config with provided object directory
+    # Store the obj_dir globally so test functions can access it
     global test_obj_dir
     test_obj_dir = args.obj_dir
     
     # Run tests
     tests = [
-        test_dataset_loading,
-        test_model_creation, 
-        test_rendering,
-        test_end_to_end,
+        (test_dataset_loading, True),  # True = needs obj_dir override
+        (test_model_creation, False), 
+        (test_rendering, False),
+        (test_end_to_end, True),  # True = needs obj_dir override
     ]
     
     results = []
-    for test_func in tests:
-        # Update obj_dir for each test
-        if 'test_dataset_loading' in test_func.__name__ or 'test_end_to_end' in test_func.__name__:
-            # Patch the config creation function
-            def patched_create_test_config():
-                cfg = create_test_config() 
-                cfg.data.obj_dir = args.obj_dir
-                return cfg
-            
-            # Temporarily replace the function
-            original_create_test_config = globals()['create_test_config']
-            globals()['create_test_config'] = patched_create_test_config
-            
-            result = test_func()
-            results.append(result)
-            
-            # Restore original function
-            globals()['create_test_config'] = original_create_test_config
+    for test_func, needs_obj_dir in tests:
+        if needs_obj_dir:
+            # Pass the obj_dir to the test function
+            result = test_func(args.obj_dir)
         else:
             result = test_func()
-            results.append(result)
+        results.append(result)
     
     # Summary
     passed = sum(results)
