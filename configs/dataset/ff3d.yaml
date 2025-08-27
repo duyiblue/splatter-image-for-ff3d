@@ -1,0 +1,30 @@
+# @package _global_
+# Configuration for FF3D single object overfitting
+
+data:
+  znear: 0.1
+  zfar: 5.0  
+  fov: 50.0  # Field of view in degrees
+  category: ff3d
+  white_background: false  # FF3D typically uses black background
+  origin_distances: false
+  training_resolution: 512  # Match the resolution from test_gaussian_overfit.py
+  obj_dir: "/Users/duyi/Desktop/tmp_codebase/tmp_data/obj_000000"  # Path to single object directory
+  test_indices: [10, 20, 30, 40]  # Test view indices for evaluation
+
+model:
+  # Gaussian parameter initialization - more conservative for overfitting
+  opacity_scale: 0.1
+  opacity_bias: -2.0
+  scale_scale: 0.01
+  scale_bias: 0.02
+  xyz_scale: 0.01
+  xyz_bias: 0.0
+  depth_scale: 1.0
+  depth_bias: 0.0
+
+opt:
+  # Training parameters optimized for overfitting 
+  base_lr: 0.0001  # Lower learning rate for stable overfitting
+  batch_size: 1    # Single object overfitting
+  imgs_per_obj: 20  # Use more views per object for stronger supervision
