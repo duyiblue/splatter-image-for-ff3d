@@ -33,7 +33,7 @@ def create_test_config():
             'white_background': False,
             'origin_distances': False,
             'training_resolution': 512,
-            'obj_dir': '/Users/duyi/Desktop/tmp_codebase/tmp_data/obj_000000',
+            'obj_dir': '/orion/u/yangyou/ff3d/data/PACE/models_rendered/obj_000000',
             'test_indices': [10, 20, 30, 40],
             'input_images': 1,
         },

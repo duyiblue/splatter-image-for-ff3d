@@ -9,7 +9,7 @@ data:
   white_background: false  # FF3D typically uses black background
   origin_distances: false
   training_resolution: 512  # Match the resolution from test_gaussian_overfit.py
-  obj_dir: "/Users/duyi/Desktop/tmp_codebase/tmp_data/obj_000000"  # Path to single object directory
+  obj_dir: "/orion/u/yangyou/ff3d/data/PACE/models_rendered/obj_000000"  # Path to single object directory
   test_indices: [10, 20, 30, 40]  # Test view indices for evaluation
 
 model:
