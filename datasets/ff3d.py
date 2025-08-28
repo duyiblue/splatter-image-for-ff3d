@@ -48,13 +48,8 @@ class FF3DDataset(SharedDataset):
             fovY=cfg.data.fov * 2 * np.pi / 360
         ).transpose(0,1)
                 
-        # Define train/test split
-        if hasattr(cfg.data, 'test_indices'):
-            self.test_indices = cfg.data.test_indices
-        else:
-            # Default test indices if not specified
-            self.test_indices = [10, 20, 30, 40] if len(self.views) > 40 else [len(self.views)//4, len(self.views)//2, 3*len(self.views)//4]
-        
+        # Simple train/test split: test_indices from config, everything else is training
+        self.test_indices = cfg.data.test_indices
         self.train_indices = [i for i in range(len(self.views)) if i not in self.test_indices]
         
         print(f"Train indices: {self.train_indices[:10]}{'...' if len(self.train_indices) > 10 else ''}")
@@ -151,34 +146,15 @@ class FF3DDataset(SharedDataset):
 
     def __getitem__(self, index):
         """
-        Returns data in the format expected by Splatter Image training loop.
+        Returns ALL views in the canonical format expected by Splatter Image.
         
-        For overfitting, we always use the same object but with different view sampling.
+        Simple logic:
+        - Always returns ALL 42 views 
+        - Training loop decides which views to supervise on (train_indices)
+        - Visualization can access any view (including test_indices)
         """
-        # For overfitting task: 
-        # - Input view is always view 0 (first canonical view)
-        # - Target views are sampled from train or test indices based on dataset_name
-        
-        if self.dataset_name == "train":
-            # Sample from training views
-            available_indices = self.train_indices
-        else:
-            # Use all views for validation/test
-            available_indices = list(range(len(self.views)))
-        
-        # Always use view 0 as input
-        input_idx = 0
-        
-        # Sample target views
-        if self.dataset_name == "train":
-            # For training: sample random subset of views
-            target_indices = self.train_indices
-        else:
-            # For validation/test: use fixed views  
-            target_indices = [i for i in available_indices if i != input_idx][:10]  # Limit for efficiency
-        
-        # Combine input and target views
-        all_indices = [input_idx] + target_indices
+        # Simple: load ALL views, let training loop decide what to use
+        all_indices = list(range(len(self.views)))
         
         # Convert to tensors and create camera matrices
         gt_images = []

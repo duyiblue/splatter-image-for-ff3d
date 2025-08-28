@@ -337,6 +337,13 @@ def main(cfg: DictConfig):
                             num_workers=num_workers,
                             persistent_workers=persistent_workers)
 
+    # For FF3D, compute train indices once at startup to avoid recreating dataset in training loop
+    if cfg.data.category == "ff3d":
+        ff3d_train_indices = [i for i in range(42) if i not in cfg.data.test_indices]  # Compute once
+        print(f"FF3D train indices: {ff3d_train_indices[:10]}{'...' if len(ff3d_train_indices) > 10 else ''}")
+    else:
+        ff3d_train_indices = None
+
     val_dataset = get_dataset(cfg, "val")
     val_dataloader = DataLoader(val_dataset, 
                                 batch_size=1,
@@ -413,11 +420,17 @@ def main(cfg: DictConfig):
             rendered_images = []
             gt_images = []
             for b_idx in range(data["gt_images"].shape[0]):
-                # image at index 0 is training, remaining images are targets
+                # For FF3D: only supervise on training views, not test views
+                if cfg.data.category == "ff3d":
+                    supervision_indices = ff3d_train_indices  # Use precomputed indices
+                else:
+                    # Original logic for other datasets
+                    supervision_indices = list(range(cfg.data.input_images, data["gt_images"].shape[1]))
+                
                 # Rendering is done sequentially because gaussian rasterization code
                 # does not support batching
                 gaussian_splat_batch = {k: v[b_idx].contiguous() for k, v in gaussian_splats.items()}
-                for r_idx in range(cfg.data.input_images, data["gt_images"].shape[1]):
+                for r_idx in supervision_indices:
                     if "focals_pixels" in data.keys():
                         focals_pixels_render = data["focals_pixels"][b_idx, r_idx].cpu()
                     else:

@@ -29,3 +29,6 @@ opt:
   base_lr: 0.0001   # Lower learning rate for stable overfitting  
   batch_size: 1     # Single object overfitting
   loss: "l1"        # Use l1 loss to match test_gaussian_overfit.py
+
+general:
+  num_devices: 1    # Single GPU for overfitting (disables DDP)

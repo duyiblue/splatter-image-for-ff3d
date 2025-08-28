@@ -1,8 +1,8 @@
-from .srn import SRNDataset
-from .co3d import CO3DDataset
-from .nmr import NMRDataset
-from .objaverse import ObjaverseDataset
-from .gso import GSODataset
+# from .srn import SRNDataset
+# from .co3d import CO3DDataset
+# from .nmr import NMRDataset
+# from .objaverse import ObjaverseDataset
+# from .gso import GSODataset
 from .ff3d import FF3DDataset
 
 def get_dataset(cfg, name):
