@@ -2,7 +2,12 @@ import glob
 import hydra
 import os
 import wandb
+from datetime import datetime
+from pathlib import Path
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -22,6 +27,192 @@ from scene.gaussian_predictor import GaussianSplatPredictor
 from datasets.dataset_factory import get_dataset
 
 
+def create_ff3d_visualizations(model: torch.nn.Module, cfg: DictConfig, device: torch.device, output_dir: Path):
+    """Create FF3D visualizations similar to test_gaussian_overfit.py."""
+    try:
+        from datasets.ff3d import FF3DDataset
+        
+        # Create dataset for visualization
+        dataset = FF3DDataset(cfg, "train")
+        sample = dataset[0]
+        
+        # Get train/test indices
+        train_indices = dataset.train_indices
+        test_indices = dataset.test_indices
+        
+        print(f"Creating visualization with {len(train_indices)} train views, {len(test_indices)} test views")
+        
+        # Select 4 views for visualization from each set
+        vis_train_indices = train_indices[:4] if len(train_indices) >= 4 else train_indices
+        vis_test_indices = test_indices[:4] if len(test_indices) >= 4 else test_indices
+        
+        num_train = len(vis_train_indices)
+        num_test = len(vis_test_indices)
+        num_cols = max(num_train, num_test)
+        
+        fig, axes = plt.subplots(4, num_cols, figsize=(4 * num_cols, 12))
+        if num_cols == 1:
+            axes = axes.reshape(4, 1)
+        
+        model.eval()
+        with torch.no_grad():
+            # Use view 0 as input (matching test_gaussian_overfit.py)
+            input_view_idx = 0
+            input_images = sample["gt_images"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
+            view_to_world = sample["view_to_world_transforms"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
+            cv2wT_quat = sample["source_cv2wT_quat"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
+            
+            # Predict Gaussians
+            predicted_gaussians = model(input_images, view_to_world, cv2wT_quat)
+            pc_batch = {k: v[0].contiguous() for k, v in predicted_gaussians.items()}
+            
+            bg_color = (torch.zeros(3) if not cfg.data.white_background else torch.ones(3)).to(device)
+            
+            # Render training views (top 2 rows)
+            for i in range(num_train):
+                view_idx = vis_train_indices[i]
+                gt_rgb = sample["gt_images"][view_idx].permute(1, 2, 0).cpu().numpy()
+                axes[0, i].imshow(gt_rgb)
+                axes[0, i].set_title(f'Train GT {view_idx}')
+                axes[0, i].axis('off')
+                
+                # Render this view
+                rendered = render_predicted(
+                    pc=pc_batch,
+                    world_view_transform=sample["world_view_transforms"][view_idx].to(device),
+                    full_proj_transform=sample["full_proj_transforms"][view_idx].to(device),
+                    camera_center=sample["camera_centers"][view_idx].to(device),
+                    bg_color=bg_color,
+                    cfg=cfg
+                )
+                
+                ren_rgb = rendered["render"].permute(1, 2, 0).detach().cpu().numpy()
+                axes[1, i].imshow(ren_rgb.clip(0, 1))
+                axes[1, i].set_title(f'Train Render {view_idx}')
+                axes[1, i].axis('off')
+            
+            # Render test views (bottom 2 rows)
+            for i in range(num_test):
+                view_idx = vis_test_indices[i]
+                gt_rgb = sample["gt_images"][view_idx].permute(1, 2, 0).cpu().numpy()
+                axes[2, i].imshow(gt_rgb)
+                axes[2, i].set_title(f'Test GT {view_idx}')
+                axes[2, i].axis('off')
+                
+                # Render this view
+                rendered = render_predicted(
+                    pc=pc_batch,
+                    world_view_transform=sample["world_view_transforms"][view_idx].to(device),
+                    full_proj_transform=sample["full_proj_transforms"][view_idx].to(device),
+                    camera_center=sample["camera_centers"][view_idx].to(device),
+                    bg_color=bg_color,
+                    cfg=cfg
+                )
+                
+                ren_rgb = rendered["render"].permute(1, 2, 0).detach().cpu().numpy()
+                axes[3, i].imshow(ren_rgb.clip(0, 1))
+                axes[3, i].set_title(f'Test Render {view_idx}')
+                axes[3, i].axis('off')
+            
+            # Hide empty subplots if needed
+            for i in range(max(num_train, num_test), num_cols):
+                for row in range(4):
+                    axes[row, i].axis('off')
+        
+        plt.suptitle('Splatter Image FF3D Results: Train (rows 1-2) vs Test (rows 3-4)', fontsize=16)
+        plt.tight_layout()
+        plt.savefig(output_dir / 'train_test_views_comparison.png', dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Compute and save metrics
+        metrics = compute_ff3d_metrics(model, dataset, cfg, device)
+        
+        # Save configuration and results  
+        with open(output_dir / "config_and_results.txt", "w") as f:
+            f.write("Splatter Image FF3D Training Results\n")
+            f.write("=" * 50 + "\n\n")
+            f.write("Configuration:\n")
+            config_dict = OmegaConf.to_container(cfg, resolve=True)
+            for section, values in config_dict.items():
+                f.write(f"[{section}]\n")
+                if isinstance(values, dict):
+                    for k, v in values.items():
+                        f.write(f"  {k}: {v}\n")
+                else:
+                    f.write(f"  {values}\n")
+                f.write("\n")
+            
+            f.write("Final Metrics:\n")
+            f.write(f"Train MSE: {metrics['train_mse']:.6f} (over {metrics['train_views']} views)\n")
+            f.write(f"Test MSE:  {metrics['test_mse']:.6f} (over {metrics['test_views']} views)\n")
+        
+        print(f"✅ Visualizations saved to {output_dir}/train_test_views_comparison.png")
+        print(f"✅ Results saved to {output_dir}/config_and_results.txt") 
+        print(f"📊 Final Train MSE: {metrics['train_mse']:.6f}, Test MSE: {metrics['test_mse']:.6f}")
+        
+    except Exception as e:
+        print(f"⚠️ Visualization failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+
+def compute_ff3d_metrics(model: torch.nn.Module, dataset, cfg: DictConfig, device: torch.device):
+    """Compute final train/test metrics."""
+    sample = dataset[0]
+    train_indices = dataset.train_indices
+    test_indices = dataset.test_indices
+    
+    with torch.no_grad():
+        # Use view 0 as input
+        input_view_idx = 0
+        input_images = sample["gt_images"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
+        view_to_world = sample["view_to_world_transforms"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
+        cv2wT_quat = sample["source_cv2wT_quat"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
+        
+        # Predict Gaussians
+        predicted_gaussians = model(input_images, view_to_world, cv2wT_quat)
+        pc_batch = {k: v[0].contiguous() for k, v in predicted_gaussians.items()}
+        
+        bg_color = (torch.zeros(3) if not cfg.data.white_background else torch.ones(3)).to(device)
+        
+        # Compute training metrics
+        train_mse_list = []
+        for view_idx in train_indices[:10]:  # Sample first 10 for efficiency
+            gt_image = sample["gt_images"][view_idx].to(device)
+            rendered = render_predicted(
+                pc=pc_batch,
+                world_view_transform=sample["world_view_transforms"][view_idx].to(device),
+                full_proj_transform=sample["full_proj_transforms"][view_idx].to(device),
+                camera_center=sample["camera_centers"][view_idx].to(device),
+                bg_color=bg_color,
+                cfg=cfg
+            )
+            mse = torch.nn.functional.mse_loss(rendered["render"], gt_image)
+            train_mse_list.append(mse.item())
+        
+        # Compute test metrics
+        test_mse_list = []
+        for view_idx in test_indices:
+            gt_image = sample["gt_images"][view_idx].to(device)
+            rendered = render_predicted(
+                pc=pc_batch,
+                world_view_transform=sample["world_view_transforms"][view_idx].to(device),
+                full_proj_transform=sample["full_proj_transforms"][view_idx].to(device),
+                camera_center=sample["camera_centers"][view_idx].to(device),
+                bg_color=bg_color,
+                cfg=cfg
+            )
+            mse = torch.nn.functional.mse_loss(rendered["render"], gt_image)
+            test_mse_list.append(mse.item())
+    
+    return {
+        'train_mse': np.mean(train_mse_list),
+        'test_mse': np.mean(test_mse_list),
+        'train_views': len(train_indices),
+        'test_views': len(test_indices),
+    }
+
+
 @hydra.main(version_base=None, config_path='configs', config_name="default_config")
 def main(cfg: DictConfig):
 
@@ -34,7 +225,20 @@ def main(cfg: DictConfig):
     fabric.launch()
 
     if fabric.is_global_zero:
-        vis_dir = os.getcwd()
+        # Create unified experiments directory with datetime subdirectory
+        if cfg.data.category == "ff3d":
+            # For FF3D, use experiments directory like test_gaussian_overfit.py
+            script_dir = Path(__file__).resolve().parent
+            experiments_root = script_dir / 'experiments'
+            experiments_root.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            vis_dir = experiments_root / f'splatter_image_ff3d_{timestamp}'
+            vis_dir.mkdir(parents=True, exist_ok=True)
+            print(f"📁 Experiment directory: {vis_dir}")
+        else:
+            vis_dir = os.getcwd()
+        
+        vis_dir = str(vis_dir)  # Convert to string for compatibility
 
         dict_cfg = OmegaConf.to_container(
             cfg, resolve=True, throw_on_missing=True
@@ -377,6 +581,12 @@ def main(cfg: DictConfig):
 
             gaussian_predictor.train()
 
+    # ============ Post-training Visualization (FF3D only) =============
+    if cfg.data.category == "ff3d" and fabric.is_global_zero:
+        print("\n🎨 Creating post-training visualizations...")
+        create_ff3d_visualizations(gaussian_predictor if not cfg.opt.ema.use else ema.ema_model, 
+                                 cfg, device, Path(vis_dir))
+    
     wandb_run.finish()
 
 if __name__ == "__main__":
