@@ -25,6 +25,6 @@ model:
 
 opt:
   # Training parameters optimized for overfitting 
-  base_lr: 0.0001  # Lower learning rate for stable overfitting
-  batch_size: 1    # Single object overfitting
-  imgs_per_obj: 20  # Use more views per object for stronger supervision
+  iterations: 1000  # Match --epochs 1000 in test_gaussian_overfit.py
+  base_lr: 0.0001   # Lower learning rate for stable overfitting  
+  batch_size: 1     # Single object overfitting

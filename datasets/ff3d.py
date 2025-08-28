@@ -47,10 +47,7 @@ class FF3DDataset(SharedDataset):
             fovX=cfg.data.fov * 2 * np.pi / 360, 
             fovY=cfg.data.fov * 2 * np.pi / 360
         ).transpose(0,1)
-        
-        # For overfitting, we use all views in training
-        self.imgs_per_obj = len(self.views)
-        
+                
         # Define train/test split
         if hasattr(cfg.data, 'test_indices'):
             self.test_indices = cfg.data.test_indices
@@ -175,12 +172,7 @@ class FF3DDataset(SharedDataset):
         # Sample target views
         if self.dataset_name == "train":
             # For training: sample random subset of views
-            n_target_views = min(self.imgs_per_obj - 1, len(available_indices) - 1)  # -1 for input view
-            target_indices = np.random.choice(
-                [i for i in available_indices if i != input_idx], 
-                size=n_target_views, 
-                replace=False
-            ).tolist()
+            target_indices = self.train_indices
         else:
             # For validation/test: use fixed views  
             target_indices = [i for i in available_indices if i != input_idx][:10]  # Limit for efficiency
