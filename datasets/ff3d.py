@@ -123,9 +123,13 @@ class FF3DDataset(SharedDataset):
             K = np.array(view_data['K'], dtype=np.float32)
             T_o2v = np.array(view_data['T_o2v'], dtype=np.float32)
             
-            # Convert T_o2v (object-to-view) to R, t format for Splatter Image
-            R = T_o2v[:3, :3].T  # Transpose because Splatter Image expects camera-to-world convention
-            t = -R @ T_o2v[:3, 3]  # Convert translation
+            # Convert T_o2v (object-to-view) to camera-to-world format for Splatter Image
+            # T_o2v transforms from object space to camera view space
+            # We need camera-to-world transform, where "world" is the object coordinate system
+            # So camera-to-world = inverse of object-to-view
+            T_v2o = np.linalg.inv(T_o2v)  # camera-to-world (view-to-object)
+            R = T_v2o[:3, :3]  # Rotation part of camera-to-world transform
+            t = T_v2o[:3, 3]   # Translation part of camera-to-world transform
             
             views.append({
                 'rgb': rgb,  # [H, W, 3] 
@@ -162,6 +166,7 @@ class FF3DDataset(SharedDataset):
         view_to_world_transforms = []
         full_proj_transforms = []
         camera_centers = []
+        focals_pixels = []
         
         for idx in all_indices:
             view = self.views[idx]
@@ -187,10 +192,17 @@ class FF3DDataset(SharedDataset):
             
             camera_center = world_view_transform.inverse()[3, :3]
             
+            # Extract focal lengths from K matrix for this view
+            K = view['K']
+            fx = K[0, 0]  # Focal length in x
+            fy = K[1, 1]  # Focal length in y
+            focal_pixels = torch.tensor([fx, fy], dtype=torch.float32)
+            
             world_view_transforms.append(world_view_transform)
             view_to_world_transforms.append(view_to_world_transform)
             full_proj_transforms.append(full_proj_transform)
             camera_centers.append(camera_center)
+            focals_pixels.append(focal_pixels)
         
         # Stack all tensors - note: don't add batch dimension yet
         images_and_camera_poses = {
@@ -199,6 +211,7 @@ class FF3DDataset(SharedDataset):
             "view_to_world_transforms": torch.stack(view_to_world_transforms),  # [N_views, 4, 4]
             "full_proj_transforms": torch.stack(full_proj_transforms),  # [N_views, 4, 4]
             "camera_centers": torch.stack(camera_centers),  # [N_views, 3]
+            "focals_pixels": torch.stack(focals_pixels),  # [N_views, 2]
         }
         
         # Make poses relative to first camera (expects no batch dimension)
