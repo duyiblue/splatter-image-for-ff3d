@@ -14,7 +14,7 @@ from torch.utils.data import Dataset
 from PIL import Image
 
 from utils.general_utils import matrix_to_quaternion
-from utils.graphics_utils import getWorld2View2, getProjectionMatrix, getView2World, focal2fov
+from utils.graphics_utils import getWorld2View2, getProjectionMatrix, getView2World
 from .shared_dataset import SharedDataset
 
 
@@ -185,24 +185,16 @@ class FF3DDataset(SharedDataset):
                 getView2World(R, t, np.array([0.0, 0.0, 0.0]), 1.0) 
             ).transpose(0, 1).float()
             
-            # Per-view projection: compute FOV from intrinsics and training resolution
-            K = view['K']
-            fx = K[0, 0]
-            fy = K[1, 1]
-            FovX = focal2fov(fx, self.cfg.data.training_resolution)
-            FovY = focal2fov(fy, self.cfg.data.training_resolution)
-            projection_matrix = getProjectionMatrix(
-                znear=self.cfg.data.znear,
-                zfar=self.cfg.data.zfar,
-                fovX=FovX,
-                fovY=FovY,
-            ).transpose(0, 1)
+            # Use global projection matrix for stability (intrinsics handled via focals)
             full_proj_transform = (world_view_transform.unsqueeze(0).bmm(
-                projection_matrix.unsqueeze(0))).squeeze(0)
+                self.projection_matrix.unsqueeze(0))).squeeze(0)
             
             camera_center = world_view_transform.inverse()[3, :3]
             
             # Extract focal lengths tensor for this view
+            K = view['K']
+            fx = K[0, 0]
+            fy = K[1, 1]
             focal_pixels = torch.tensor([fx, fy], dtype=torch.float32)
             
             world_view_transforms.append(world_view_transform)
