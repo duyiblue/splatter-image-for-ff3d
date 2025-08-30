@@ -62,8 +62,9 @@ def create_ff3d_visualizations(model: torch.nn.Module, cfg: DictConfig, device: 
             view_to_world = sample["view_to_world_transforms"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
             cv2wT_quat = sample["source_cv2wT_quat"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
             
-            # Predict Gaussians
-            predicted_gaussians = model(input_images, view_to_world, cv2wT_quat)
+            # Predict Gaussians (pass per-view focals for ff3d)
+            focals_pixels = sample["focals_pixels"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
+            predicted_gaussians = model(input_images, view_to_world, cv2wT_quat, focals_pixels)
             pc_batch = {k: v[0].contiguous() for k, v in predicted_gaussians.items()}
             
             bg_color = (torch.zeros(3) if not cfg.data.white_background else torch.ones(3)).to(device)
@@ -83,7 +84,8 @@ def create_ff3d_visualizations(model: torch.nn.Module, cfg: DictConfig, device: 
                     full_proj_transform=sample["full_proj_transforms"][view_idx].to(device),
                     camera_center=sample["camera_centers"][view_idx].to(device),
                     bg_color=bg_color,
-                    cfg=cfg
+                    cfg=cfg,
+                    focals_pixels=sample["focals_pixels"][view_idx].cpu()
                 )
                 
                 ren_rgb = rendered["render"].permute(1, 2, 0).detach().cpu().numpy()
@@ -106,7 +108,8 @@ def create_ff3d_visualizations(model: torch.nn.Module, cfg: DictConfig, device: 
                     full_proj_transform=sample["full_proj_transforms"][view_idx].to(device),
                     camera_center=sample["camera_centers"][view_idx].to(device),
                     bg_color=bg_color,
-                    cfg=cfg
+                    cfg=cfg,
+                    focals_pixels=sample["focals_pixels"][view_idx].cpu()
                 )
                 
                 ren_rgb = rendered["render"].permute(1, 2, 0).detach().cpu().numpy()
@@ -169,8 +172,9 @@ def compute_ff3d_metrics(model: torch.nn.Module, dataset, cfg: DictConfig, devic
         view_to_world = sample["view_to_world_transforms"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
         cv2wT_quat = sample["source_cv2wT_quat"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
         
-        # Predict Gaussians
-        predicted_gaussians = model(input_images, view_to_world, cv2wT_quat)
+        # Predict Gaussians (pass per-view focals for ff3d)
+        focals_pixels = sample["focals_pixels"][input_view_idx:input_view_idx+1].unsqueeze(0).to(device)
+        predicted_gaussians = model(input_images, view_to_world, cv2wT_quat, focals_pixels)
         pc_batch = {k: v[0].contiguous() for k, v in predicted_gaussians.items()}
         
         bg_color = (torch.zeros(3) if not cfg.data.white_background else torch.ones(3)).to(device)
@@ -185,7 +189,8 @@ def compute_ff3d_metrics(model: torch.nn.Module, dataset, cfg: DictConfig, devic
                 full_proj_transform=sample["full_proj_transforms"][view_idx].to(device),
                 camera_center=sample["camera_centers"][view_idx].to(device),
                 bg_color=bg_color,
-                cfg=cfg
+                cfg=cfg,
+                focals_pixels=sample["focals_pixels"][view_idx].cpu()
             )
             mse = torch.nn.functional.mse_loss(rendered["render"], gt_image)
             train_mse_list.append(mse.item())
@@ -200,7 +205,8 @@ def compute_ff3d_metrics(model: torch.nn.Module, dataset, cfg: DictConfig, devic
                 full_proj_transform=sample["full_proj_transforms"][view_idx].to(device),
                 camera_center=sample["camera_centers"][view_idx].to(device),
                 bg_color=bg_color,
-                cfg=cfg
+                cfg=cfg,
+                focals_pixels=sample["focals_pixels"][view_idx].cpu()
             )
             mse = torch.nn.functional.mse_loss(rendered["render"], gt_image)
             test_mse_list.append(mse.item())
