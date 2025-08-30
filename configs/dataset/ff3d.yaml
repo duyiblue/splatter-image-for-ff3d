@@ -2,8 +2,8 @@
 # Configuration for FF3D single object overfitting
 
 data:
-  znear: 0.1
-  zfar: 5.0  
+  znear: 0.01
+  zfar: 100.0
   fov: 50.0  # Field of view in degrees
   category: ff3d
   white_background: false  # FF3D typically uses black background

@@ -41,11 +41,15 @@ class FF3DDataset(SharedDataset):
         print(f"✅ Loaded {len(self.views)} canonical views ({self.H}x{self.W})")
         
         # Set up projection matrix
+        # Follow @gaussian_util.py, which follows the original gaussian-splatting implementation
+        fx, fy = self.views[0]['K'][0, 0], self.views[0]['K'][1, 1]
+        fovx = 2 * math.atan(W / (2 * fx))
+        fovy = 2 * math.atan(H / (2 * fy))
         self.projection_matrix = getProjectionMatrix(
             znear=self.cfg.data.znear, 
             zfar=self.cfg.data.zfar,
-            fovX=cfg.data.fov * 2 * np.pi / 360, 
-            fovY=cfg.data.fov * 2 * np.pi / 360
+            fovX=fovx, 
+            fovY=fovy
         ).transpose(0,1)
                 
         # Simple train/test split: test_indices from config, everything else is training
@@ -58,17 +62,18 @@ class FF3DDataset(SharedDataset):
     def load_image(self, path: Path) -> np.ndarray:
         """Load RGB image and normalize to [0, 1]."""
         with Image.open(path) as im:
-            # Resize to training resolution
-            im = im.resize((self.cfg.data.training_resolution, self.cfg.data.training_resolution))
             arr = np.array(im)
+            if arr.shape[0] != self.cfg.data.training_resolution or arr.shape[1] != self.cfg.data.training_resolution:
+                raise ValueError(f"Image shape {arr.shape} does not match training resolution {self.cfg.data.training_resolution}")
         return arr.astype(np.float32) / 255.0
 
     def load_depth(self, path: Path) -> np.ndarray:
         """Load depth map in meters."""
         with Image.open(path) as im:
-            # Resize to training resolution  
-            im = im.resize((self.cfg.data.training_resolution, self.cfg.data.training_resolution))
             arr = np.array(im)
+            if arr.shape[0] != self.cfg.data.training_resolution or arr.shape[1] != self.cfg.data.training_resolution:
+                raise ValueError(f"Depth map shape {arr.shape} does not match training resolution {self.cfg.data.training_resolution}")
+
         if arr.dtype == np.uint16:
             depth_m = arr.astype(np.float32) / 1000.0
         elif arr.dtype in (np.float32, np.float64):
@@ -76,15 +81,16 @@ class FF3DDataset(SharedDataset):
         else:
             raise RuntimeError(f"Unexpected depth dtype {arr.dtype} in {path}")
         return depth_m
-
+    
     def load_mask(self, path: Path) -> np.ndarray:
         """Load binary mask."""
         with Image.open(path) as im:
             if im.mode != 'L':
                 im = im.convert('L')
-            # Resize to training resolution
-            im = im.resize((self.cfg.data.training_resolution, self.cfg.data.training_resolution))
             arr = np.array(im)
+
+            if arr.shape[0] != self.cfg.data.training_resolution or arr.shape[1] != self.cfg.data.training_resolution:
+                raise ValueError(f"Mask shape {arr.shape} does not match training resolution {self.cfg.data.training_resolution}")
         mask = (arr > 0).astype(np.float32)
         return mask
 
@@ -122,21 +128,13 @@ class FF3DDataset(SharedDataset):
             
             K = np.array(view_data['K'], dtype=np.float32)
             T_o2v = np.array(view_data['T_o2v'], dtype=np.float32)
-
-            # Use world-to-camera (object-to-view) directly, matching other datasets' convention
-            # Other datasets pass R = (w2c[:3, :3]).T and t = w2c[:3, 3] into getWorld2View2/getView2World
-            w2c = T_o2v  # world/object -> camera/view
-            R = w2c[:3, :3].T
-            t = w2c[:3, 3]
             
             views.append({
                 'rgb': rgb,  # [H, W, 3] 
                 'depth': depth_m,  # [H, W]
                 'mask': mask,  # [H, W]
                 'K': K,  # [3, 3]
-                'R': R,  # [3, 3] - camera rotation (world to camera), stored transposed as expected by utils
-                't': t,  # [3] - camera translation (world to camera)
-                'T_o2v': w2c,  # [4, 4] - original world-to-camera transform
+                'T_o2v': T_o2v,  # [4, 4] - original world-to-camera transform
             })
         
         return views, Hc, Wc
@@ -173,17 +171,9 @@ class FF3DDataset(SharedDataset):
             rgb = torch.from_numpy(view['rgb']).permute(2, 0, 1)  # [3, H, W]
             gt_images.append(rgb)
             
-            # Camera transforms - use the matrices from the view
-            R = view['R']
-            t = view['t']
+            world_view_transform = view['T_o2v'].transpose(0, 1)
             
-            world_view_transform = torch.tensor(
-                getWorld2View2(R, t, np.array([0.0, 0.0, 0.0]), 1.0)
-            ).transpose(0, 1).float()
-            
-            view_to_world_transform = torch.tensor(
-                getView2World(R, t, np.array([0.0, 0.0, 0.0]), 1.0) 
-            ).transpose(0, 1).float()
+            view_to_world_transform = np.linalg.inv(view['T_o2v']).transpose(0, 1)
             
             # Use global projection matrix for stability (intrinsics handled via focals)
             full_proj_transform = (world_view_transform.unsqueeze(0).bmm(
