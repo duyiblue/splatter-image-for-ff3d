@@ -538,11 +538,10 @@ class GaussianSplatPredictor(nn.Module):
         ones = torch.ones_like(grid_x, dtype=grid_x.dtype)
         ray_dirs = torch.stack([grid_x, grid_y, ones]).unsqueeze(0)
 
-        # for cars and chairs the focal length is fixed across dataset
-        # so we can preprocess it
-        # for co3d this is done on the fly
-        if self.cfg.data.category not in ["hydrants", "teddybears"]:
-            ray_dirs[:, :2, ...] /= fov2focal(self.cfg.data.fov * np.pi / 180, 
+        # For datasets with a single fixed FOV across views, pre-divide once.
+        # For datasets with per-view intrinsics (CO3D, FF3D), defer scaling to forward() via focals_pixels.
+        if self.cfg.data.category in ["cars", "chairs", "nmr", "objaverse", "gso"]:
+            ray_dirs[:, :2, ...] /= fov2focal(self.cfg.data.fov * np.pi / 180,
                                               self.cfg.data.training_resolution)
         self.register_buffer('ray_dirs', ray_dirs)
 
@@ -667,7 +666,7 @@ class GaussianSplatPredictor(nn.Module):
         # expands ray dirs along the batch dimension
         # adjust ray directions according to fov if not done already
         ray_dirs_xy = self.ray_dirs.expand(depth_network.shape[0], 3, *self.ray_dirs.shape[2:])
-        if self.cfg.data.category in ["hydrants", "teddybears"]:
+        if self.cfg.data.category in ["hydrants", "teddybears", "ff3d"]:
             assert torch.all(focals_pixels > 0)
             ray_dirs_xy = ray_dirs_xy.clone()
             ray_dirs_xy[:, :2, ...] = ray_dirs_xy[:, :2, ...] / focals_pixels.unsqueeze(2).unsqueeze(3)
@@ -703,11 +702,11 @@ class GaussianSplatPredictor(nn.Module):
         else:
             film_camera_emb = None
 
-        if self.cfg.data.category in ["hydrants", "teddybears"]:
+        if self.cfg.data.category in ["hydrants", "teddybears", "ff3d"]:
             assert focals_pixels is not None
             focals_pixels = focals_pixels.reshape(B*N_views, *focals_pixels.shape[2:])
         else:
-            assert focals_pixels is None, "Unexpected argument for non-co3d dataset"
+            assert focals_pixels is None, "Unexpected argument for this dataset"
 
         x = x.reshape(B*N_views, *x.shape[2:])
         if self.cfg.data.origin_distances:

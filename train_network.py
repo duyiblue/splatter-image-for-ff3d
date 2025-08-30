@@ -388,7 +388,11 @@ def main(cfg: DictConfig):
                                 data["origin_distances"][:, :cfg.data.input_images, ...]],
                                 dim=2)
             else:
-                focals_pixels_pred = None
+                # For ff3d, use per-view focals without origin distances
+                if cfg.data.category == "ff3d":
+                    focals_pixels_pred = data["focals_pixels"][:, :cfg.data.input_images, ...]
+                else:
+                    focals_pixels_pred = None
                 input_images = data["gt_images"][:, :cfg.data.input_images, ...]
 
             gaussian_splats = gaussian_predictor(input_images,
@@ -518,7 +522,10 @@ def main(cfg: DictConfig):
                                                 vis_data["origin_distances"][:, :cfg.data.input_images, ...]],
                                                 dim=2)
                     else:
-                        focals_pixels_pred = None
+                        if cfg.data.category == "ff3d":
+                            focals_pixels_pred = vis_data["focals_pixels"][:, :cfg.data.input_images, ...]
+                        else:
+                            focals_pixels_pred = None
                         input_images = vis_data["gt_images"][:, :cfg.data.input_images, ...]
 
                     gaussian_splats_vis = gaussian_predictor(input_images,
