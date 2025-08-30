@@ -186,8 +186,11 @@ class FF3DDataset(SharedDataset):
             ).transpose(0, 1).float()
             
             # Per-view projection: compute FOV from intrinsics and training resolution
-            FovX = focal2fov(K[0, 0], self.cfg.data.training_resolution)
-            FovY = focal2fov(K[1, 1], self.cfg.data.training_resolution)
+            K = view['K']
+            fx = K[0, 0]
+            fy = K[1, 1]
+            FovX = focal2fov(fx, self.cfg.data.training_resolution)
+            FovY = focal2fov(fy, self.cfg.data.training_resolution)
             projection_matrix = getProjectionMatrix(
                 znear=self.cfg.data.znear,
                 zfar=self.cfg.data.zfar,
@@ -199,10 +202,7 @@ class FF3DDataset(SharedDataset):
             
             camera_center = world_view_transform.inverse()[3, :3]
             
-            # Extract focal lengths from K matrix for this view
-            K = view['K']
-            fx = K[0, 0]  # Focal length in x
-            fy = K[1, 1]  # Focal length in y
+            # Extract focal lengths tensor for this view
             focal_pixels = torch.tensor([fx, fy], dtype=torch.float32)
             
             world_view_transforms.append(world_view_transform)
