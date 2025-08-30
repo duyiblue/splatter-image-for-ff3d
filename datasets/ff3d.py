@@ -122,23 +122,21 @@ class FF3DDataset(SharedDataset):
             
             K = np.array(view_data['K'], dtype=np.float32)
             T_o2v = np.array(view_data['T_o2v'], dtype=np.float32)
-            
-            # Convert T_o2v (object-to-view) to camera-to-world format for Splatter Image
-            # T_o2v transforms from object space to camera view space
-            # We need camera-to-world transform, where "world" is the object coordinate system
-            # So camera-to-world = inverse of object-to-view
-            T_v2o = np.linalg.inv(T_o2v)  # camera-to-world (view-to-object)
-            R = T_v2o[:3, :3]  # Rotation part of camera-to-world transform
-            t = T_v2o[:3, 3]   # Translation part of camera-to-world transform
+
+            # Use world-to-camera (object-to-view) directly, matching other datasets' convention
+            # Other datasets pass R = (w2c[:3, :3]).T and t = w2c[:3, 3] into getWorld2View2/getView2World
+            w2c = T_o2v  # world/object -> camera/view
+            R = w2c[:3, :3].T
+            t = w2c[:3, 3]
             
             views.append({
                 'rgb': rgb,  # [H, W, 3] 
                 'depth': depth_m,  # [H, W]
                 'mask': mask,  # [H, W]
                 'K': K,  # [3, 3]
-                'R': R,  # [3, 3] - camera rotation (world to camera)
-                't': t,  # [3] - camera translation
-                'T_o2v': T_o2v,  # [4, 4] - original transform
+                'R': R,  # [3, 3] - camera rotation (world to camera), stored transposed as expected by utils
+                't': t,  # [3] - camera translation (world to camera)
+                'T_o2v': w2c,  # [4, 4] - original world-to-camera transform
             })
         
         return views, Hc, Wc
